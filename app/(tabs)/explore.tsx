@@ -1,109 +1,141 @@
-import { StyleSheet, Image, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Alert, Vibration } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE, MapEvent, Circle } from 'react-native-maps';
+import * as Location from 'expo-location';
+import Dialog from 'react-native-dialog';
 
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-
-export default function TabTwoScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Explore</ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image source={require('@/assets/images/react-logo.png')} style={{ alignSelf: 'center' }} />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Custom fonts">
-        <ThemedText>
-          Open <ThemedText type="defaultSemiBold">app/_layout.tsx</ThemedText> to see how to load{' '}
-          <ThemedText style={{ fontFamily: 'SpaceMono' }}>
-            custom fonts such as this one.
-          </ThemedText>
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/versions/latest/sdk/font">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user's current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful <ThemedText type="defaultSemiBold">react-native-reanimated</ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
-  );
+interface MarkerData {
+  coordinate: {
+    latitude: number;
+    longitude: number;
+  };
+  key: string;
 }
 
+const App: React.FC = () => {
+  const [marker, setMarker] = useState<MarkerData | null>(null);
+  const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
+  const [radius, setRadius] = useState<number>(1000); // Default radius
+  const [dialogVisible, setDialogVisible] = useState<boolean>(false);
+
+  useEffect(() => {
+    requestPermissions();
+    const locationSubscription = Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 20000, // Update every 20 seconds
+        distanceInterval: 1,
+      },
+      (location) => {
+        setUserLocation(location.coords);
+        checkProximity(location.coords);
+      }
+    );
+
+    return () => {
+      locationSubscription.remove();
+    };
+  }, []);
+
+  const requestPermissions = async () => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      alert('Permission to access location was denied');
+      return;
+    }
+  };
+
+  const handleMapPress = (event: MapEvent) => {
+    const newMarker: MarkerData = {
+      coordinate: event.nativeEvent.coordinate,
+      key: 'userMarker',
+    };
+    setMarker(newMarker);
+    setDialogVisible(true);
+  };
+
+  const handleDialogSubmit = () => {
+    setDialogVisible(false);
+  };
+
+  const checkProximity = (userCoords: Location.LocationObjectCoords) => {
+    if (marker) {
+      const distance = getDistance(userCoords, marker.coordinate);
+      if (distance <= radius) {
+        Alert.alert('You are within the specified radius of the marker!');
+        Vibration.vibrate(5000); // Vibrate for 5 seconds
+      }
+    }
+  };
+
+  const getDistance = (coord1: Location.LocationObjectCoords, coord2: { latitude: number; longitude: number }) => {
+    const R = 6371e3; // metres
+    const φ1 = (coord1.latitude * Math.PI) / 180;
+    const φ2 = (coord2.latitude * Math.PI) / 180;
+    const Δφ = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
+    const Δλ = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) *
+      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    const distance = R * c; // in metres
+    return distance;
+  };
+
+  return (
+    <View style={styles.container}>
+      <MapView
+        provider={PROVIDER_GOOGLE}
+        style={styles.map}
+        initialRegion={{
+          latitude: 37.78825,
+          longitude: -122.4324,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        }}
+        onPress={handleMapPress}
+      >
+        {marker && (
+          <>
+            <Marker
+              key={marker.key}
+              coordinate={marker.coordinate}
+            />
+            <Circle
+              center={marker.coordinate}
+              radius={radius} // Use the user-defined radius
+              strokeColor="rgba(0, 0, 255, 0.5)"
+              fillColor="rgba(0, 0, 255, 0.1)"
+            />
+          </>
+        )}
+      </MapView>
+      <Dialog.Container visible={dialogVisible}>
+        <Dialog.Title>Set Radius</Dialog.Title>
+        <Dialog.Input
+          placeholder="Enter radius in meters"
+          keyboardType="numeric"
+          onChangeText={(text) => setRadius(Number(text))}
+        />
+        <Dialog.Button label="Cancel" onPress={() => setDialogVisible(false)} />
+        <Dialog.Button label="OK" onPress={handleDialogSubmit} />
+      </Dialog.Container>
+    </View>
+  );
+};
+
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
 });
+
+export default App;
